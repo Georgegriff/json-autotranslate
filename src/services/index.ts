@@ -4,7 +4,7 @@ import { DeepLFree } from './deepl-free';
 import { DryRun } from './dry-run';
 import { AzureTranslator } from './azure-translator';
 import { ManualTranslation } from './manual';
-import { Matcher } from '../matchers';
+import { AsyncReplacer, Matcher } from '../matchers';
 import { AmazonTranslate } from './amazon-translate';
 
 export interface TranslationResult {
@@ -21,7 +21,7 @@ export interface TranslationService {
   name: string;
   initialize: (
     config?: string,
-    interpolationMatcher?: Matcher,
+    interpolationMatcher?: Matcher | AsyncReplacer,
     decodeEscapes?: boolean,
   ) => Promise<void>;
   supportsLanguage: (language: string) => boolean;

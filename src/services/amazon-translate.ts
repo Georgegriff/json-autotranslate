@@ -2,12 +2,15 @@ import { Translate } from '@aws-sdk/client-translate';
 import { decode } from 'html-entities';
 import { TranslationService, TString } from '.';
 import {
-  Matcher, reInsertInterpolations, replaceInterpolations
+  AsyncReplacer,
+  Matcher,
+  reInsertInterpolations,
+  replaceInterpolations,
 } from '../matchers';
 import fs from 'fs';
 export class AmazonTranslate implements TranslationService {
   private translate: Translate;
-  private interpolationMatcher: Matcher;
+  private interpolationMatcher: Matcher | AsyncReplacer;
   private supportedLanguages: object = {
     'af': 'af',
     'sq': 'sq',
@@ -91,10 +94,12 @@ export class AmazonTranslate implements TranslationService {
 
   async initialize(
     config?: string,
-    interpolationMatcher?: Matcher,
+    interpolationMatcher?: Matcher | AsyncReplacer,
     decodeEscapes?: boolean,
   ) {
-    const configJson = config ? JSON.parse(fs.readFileSync(config).toString()) : {};
+    const configJson = config
+      ? JSON.parse(fs.readFileSync(config).toString())
+      : {};
     this.translate = new Translate(configJson);
 
     this.interpolationMatcher = interpolationMatcher;
@@ -102,29 +107,47 @@ export class AmazonTranslate implements TranslationService {
   }
 
   supportsLanguage(language: string) {
-    return Object.keys(this.supportedLanguages).includes(language.toLowerCase());
+    return Object.keys(this.supportedLanguages).includes(
+      language.toLowerCase(),
+    );
   }
 
   async translateStrings(strings: TString[], from: string, to: string) {
     return Promise.all(
       strings.map(async ({ key, value }) => {
-        const { clean, replacements } = replaceInterpolations(
-          value,
-          this.interpolationMatcher,
-        );
+        let translatedString;
+        if ('asyncReplacer' in this.interpolationMatcher) {
+          translatedString = await this.interpolationMatcher.asyncReplacer(
+            value,
+            async (input) => {
+              const { TranslatedText } = await this.translate.translateText({
+                Text: input,
+                SourceLanguageCode: this.supportedLanguages[from.toLowerCase()],
+                TargetLanguageCode: this.supportedLanguages[to.toLowerCase()],
+              });
+              return TranslatedText;
+            },
+          );
+        } else {
+          const { clean, replacements } = replaceInterpolations(
+            value,
+            this.interpolationMatcher,
+          );
 
-        const { TranslatedText } = await this.translate.translateText({
-          Text: clean,
-          SourceLanguageCode: this.supportedLanguages[from.toLowerCase()],
-          TargetLanguageCode: this.supportedLanguages[to.toLowerCase()],
-        });
-
-        const reInsterted = reInsertInterpolations(TranslatedText, replacements);
+          const { TranslatedText } = await this.translate.translateText({
+            Text: clean,
+            SourceLanguageCode: this.supportedLanguages[from.toLowerCase()],
+            TargetLanguageCode: this.supportedLanguages[to.toLowerCase()],
+          });
+          translatedString = this.decodeEscapes
+            ? decode(reInsertInterpolations(TranslatedText, replacements))
+            : reInsertInterpolations(TranslatedText, replacements);
+        }
 
         return {
           key: key,
           value: value,
-          translated: this.decodeEscapes ? decode(reInsterted) : reInsterted,
+          translated: translatedString,
         };
       }),
     );

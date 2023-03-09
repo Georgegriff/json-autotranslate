@@ -4,6 +4,7 @@ import {
   replaceInterpolations,
   reInsertInterpolations,
   Matcher,
+  AsyncReplacer,
 } from '../matchers';
 import { TranslationService, TString } from '.';
 
@@ -15,7 +16,7 @@ const codeMap = {
 
 export class GoogleTranslate implements TranslationService {
   private translate: v2.Translate;
-  private interpolationMatcher: Matcher;
+  private interpolationMatcher: Matcher | AsyncReplacer;
   private supportedLanguages: string[] = [];
   private decodeEscapes: boolean;
 
@@ -67,22 +68,42 @@ export class GoogleTranslate implements TranslationService {
   async translateStrings(strings: TString[], from: string, to: string) {
     return Promise.all(
       strings.map(async ({ key, value }) => {
-        const { clean, replacements } = replaceInterpolations(
-          value,
-          this.interpolationMatcher,
-        );
+        let translatedString;
+        if ('asyncReplacer' in this.interpolationMatcher) {
+          translatedString = await this.interpolationMatcher.asyncReplacer(
+            value,
+            async (input) => {
+              const [translationResult] = await this.translate.translate(
+                input,
+                {
+                  from: this.cleanLanguageCode(from),
+                  to: this.cleanLanguageCode(to),
+                  format: 'html',
+                },
+              );
+              return translationResult;
+            },
+          );
+        } else {
+          const { clean, replacements } = replaceInterpolations(
+            value,
+            this.interpolationMatcher,
+          );
 
-        const [translationResult] = await this.translate.translate(clean, {
-          from: this.cleanLanguageCode(from),
-          to: this.cleanLanguageCode(to),
-        });
+          const [translationResult] = await this.translate.translate(clean, {
+            from: this.cleanLanguageCode(from),
+            to: this.cleanLanguageCode(to),
+          });
+
+          translatedString = this.cleanResponse(
+            reInsertInterpolations(translationResult, replacements),
+          );
+        }
 
         return {
           key: key,
           value: value,
-          translated: this.cleanResponse(
-            reInsertInterpolations(translationResult, replacements),
-          ),
+          translated: translatedString,
         };
       }),
     );

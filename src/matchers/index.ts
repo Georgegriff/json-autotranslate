@@ -1,4 +1,4 @@
-import { matchIcu } from './icu';
+import { icuReplacer } from './icu';
 import { matchI18Next } from './i18next';
 import { matchSprintf } from './sprintf';
 
@@ -11,11 +11,20 @@ export type Matcher = (
   replacer: (index: number) => string,
 ) => { from: string; to: string }[];
 
+export type AsyncReplaceFn = (
+  input: string,
+  translateText: (input: string) => Promise<string>,
+) => Promise<string>;
+
+export type AsyncReplacer = {
+  asyncReplacer: AsyncReplaceFn;
+};
+
 export const matcherMap: {
-  [k: string]: Matcher;
+  [k: string]: Matcher | AsyncReplacer;
 } = {
   none: matchNothing,
-  icu: matchIcu,
+  icu: icuReplacer,
   i18next: matchI18Next,
   sprintf: matchSprintf,
 };

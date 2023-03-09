@@ -1,53 +1,77 @@
-import { parse } from 'messageformat-parser';
-import { Matcher } from '.';
+import {
+  parse,
+  isLiteralElement,
+  isTagElement,
+  isPluralElement,
+  isSelectElement,
+} from '@formatjs/icu-messageformat-parser';
+import { printAST } from '@formatjs/icu-messageformat-parser/printer';
+import type { MessageFormatElement } from '@formatjs/icu-messageformat-parser';
 
-type Plural = {
-  cases: [
-    {
-      tokens: string[];
-    },
-  ];
-};
+import type { AsyncReplaceFn, AsyncReplacer } from '.';
 
-type ICUMatch = Plural | string;
-
-export const matchIcu: Matcher = (
-  input: string,
-  replacer: (i: number) => string,
-) => {
-  const writeTokens = (part: ICUMatch) => {
-    if (typeof part !== 'string' && part?.cases?.length) {
-      return part.cases
-        .map((partCase) => {
-          return partCase.tokens.length
-            ? `(.*)${nestedIcuMatcher(partCase.tokens)}(.*)`
+async function doTranslateAst(
+  messageElements: MessageFormatElement[],
+  translateText,
+): Promise<MessageFormatElement[]> {
+  const translatedElements = await Promise.all(
+    messageElements.map(async (messageElement) => {
+      if (isLiteralElement(messageElement)) {
+        const originalValue = messageElement.value;
+        // some services don't play well with whitespace, they remove it, manually handle that.
+        const trimmedValue = originalValue.trim();
+        const startingWhitespace =
+          originalValue[0] !== trimmedValue[0] ? originalValue[0] : '';
+        const endingWhitespace =
+          originalValue[originalValue.length - 1] !==
+          trimmedValue[trimmedValue.length - 1]
+            ? originalValue[originalValue.length - 1]
             : '';
-        })
-        .join('');
-    } else {
-      return '(.*)';
-    }
-  };
-  const nestedIcuMatcher = (parts: ICUMatch[]): string => {
-    return (
-      parts
-        .map((part) =>
-          typeof part === 'string'
-            ? part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-            : writeTokens(part),
-        )
-        .join('')
-        // reduce replacement noise between replacements from nested tokens i.e. back to back (.*)(.*)
-        .replace(/(\(\.\*\)){2,}/g, '(.*)')
-    );
-  };
-  const parts = parse(input);
-  const regex = new RegExp(nestedIcuMatcher(parts));
+        messageElement.value = `${startingWhitespace}${await translateText(
+          trimmedValue,
+        )}${endingWhitespace}`;
+      }
 
-  const matches = input.match(regex);
+      if (isPluralElement(messageElement) || isSelectElement(messageElement)) {
+        const optionEntries = await Promise.all(
+          Object.keys(messageElement.options).map(async (id) => {
+            const pluralChildElement = messageElement.options[id];
+            const value = await doTranslateAst(
+              pluralChildElement.value,
+              translateText,
+            );
+            pluralChildElement.value = value;
 
-  return (matches || []).slice(1).map((match, index) => ({
-    from: match,
-    to: replacer(index),
-  }));
+            return [id, pluralChildElement];
+          }),
+        );
+        messageElement.options = Object.fromEntries(optionEntries);
+      }
+
+      if (isTagElement(messageElement)) {
+        const elementChildren = await doTranslateAst(
+          messageElement.children,
+          translateText,
+        );
+        messageElement.children = elementChildren;
+      }
+
+      return messageElement;
+    }),
+  );
+
+  return translatedElements;
+}
+
+export const asyncReplace: AsyncReplaceFn = async (input, translateText) => {
+  const astMessageElements = parse(input);
+  const translatedMessaged = await doTranslateAst(
+    astMessageElements,
+    translateText,
+  );
+  // convert back to string
+  return printAST(translatedMessaged);
+};
+export const icuReplacer: AsyncReplacer = {
+  asyncReplacer: asyncReplace,
 };
