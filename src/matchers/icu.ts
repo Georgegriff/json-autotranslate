@@ -20,6 +20,9 @@ async function doTranslateAst(
         const originalValue = messageElement.value;
         // some services don't play well with whitespace, they remove it, manually handle that.
         const trimmedValue = originalValue.trim();
+        if (!trimmedValue) {
+          return originalValue;
+        }
         const startingWhitespace =
           originalValue[0] !== trimmedValue[0] ? originalValue[0] : '';
         const endingWhitespace =
