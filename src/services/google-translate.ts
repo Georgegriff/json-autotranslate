@@ -78,7 +78,6 @@ export class GoogleTranslate implements TranslationService {
                 {
                   from: this.cleanLanguageCode(from),
                   to: this.cleanLanguageCode(to),
-                  format: 'html',
                 },
               );
               return translationResult;
@@ -95,15 +94,16 @@ export class GoogleTranslate implements TranslationService {
             to: this.cleanLanguageCode(to),
           });
 
-          translatedString = this.cleanResponse(
-            reInsertInterpolations(translationResult, replacements),
+          translatedString = reInsertInterpolations(
+            translationResult,
+            replacements,
           );
         }
 
         return {
           key: key,
           value: value,
-          translated: translatedString,
+          translated: this.cleanResponse(translatedString),
         };
       }),
     );

@@ -139,15 +139,15 @@ export class AmazonTranslate implements TranslationService {
             SourceLanguageCode: this.supportedLanguages[from.toLowerCase()],
             TargetLanguageCode: this.supportedLanguages[to.toLowerCase()],
           });
-          translatedString = this.decodeEscapes
-            ? decode(reInsertInterpolations(TranslatedText, replacements))
-            : reInsertInterpolations(TranslatedText, replacements);
+          translatedString = reInsertInterpolations(TranslatedText, replacements);
         }
 
         return {
           key: key,
           value: value,
-          translated: translatedString,
+          translated: this.decodeEscapes
+          ? decode(translatedString)
+          : translatedString
         };
       }),
     );
