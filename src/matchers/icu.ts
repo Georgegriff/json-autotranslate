@@ -10,10 +10,38 @@ import type { MessageFormatElement } from '@formatjs/icu-messageformat-parser';
 
 import type { AsyncReplaceFn, AsyncReplacer } from '.';
 
+function isHTMLChildrenOrLiteralOnly(
+  messageElements: MessageFormatElement[],
+): boolean {
+  let childrenAreAllText = true;
+  for (const messageElement of messageElements) {
+    if (isTagElement(messageElement)) {
+      childrenAreAllText =
+        childrenAreAllText &&
+        isHTMLChildrenOrLiteralOnly(messageElement.children);
+      if (!childrenAreAllText) {
+        break;
+      }
+    } else if (!isLiteralElement(messageElement)) {
+      childrenAreAllText = false;
+      break;
+    }
+  }
+
+  return childrenAreAllText;
+}
+
 async function doTranslateAst(
   messageElements: MessageFormatElement[],
   translateText,
 ): Promise<MessageFormatElement[]> {
+  if (isHTMLChildrenOrLiteralOnly(messageElements)) {
+    const messageAsHTMLString = printAST(messageElements);
+
+    const translatedHTML = await translateText(messageAsHTMLString);
+    const translatedElements = parse(translatedHTML);
+    return translatedElements;
+  }
   const translatedElements = await Promise.all(
     messageElements.map(async (messageElement) => {
       if (isLiteralElement(messageElement)) {
